@@ -144,7 +144,7 @@ function App() {
         fetchQuotesWithTheoreticalAPR();
       }, 100);
     });
-  }, []);
+  }, [fetchQuotesWithTheoreticalAPR]);
 
   // Group quotes by asset
   const groupedQuotes = quotes.reduce((acc, quote) => {
