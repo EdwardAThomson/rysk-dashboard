@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-background: 210 40% 98%;
+    --color-foreground: 222.2 84% 4.9%;
+    --color-primary: 222.2 47.4% 11.2%;
+    --color-secondary: 210 40% 96.1%;
+    --color-accent: 210 40% 96.1%;
+  }
+
+  .dark {
+    --color-background: 222.2 84% 4.9%;
+    --color-foreground: 210 40% 98%;
+    --color-primary: 210 40% 98%;
+    --color-secondary: 222.2 47.4% 11.2%;
+    --color-accent: 222.2 47.4% 11.2%;
+  }
+}
