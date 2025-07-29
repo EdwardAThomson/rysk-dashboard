@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import './App.css';
 import ThemeSwitcher from './components/ThemeSwitcher';
 
@@ -24,7 +24,7 @@ function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
 
-  const fetchQuotesWithTheoreticalAPR = async () => {
+  const fetchQuotesWithTheoreticalAPR = useCallback(async () => {
     const isInitialLoad = quotes.length === 0;
     if (isInitialLoad) {
       setLoading(true);
@@ -134,7 +134,7 @@ function App() {
         setIsRefreshing(false);
       }
     }
-  };
+  }, [quotes.length]);
 
   useEffect(() => {
     // Use requestAnimationFrame to ensure theme switcher renders immediately
