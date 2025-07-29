@@ -355,43 +355,69 @@ async function navigateToAssetAndExtractData(page, asset) {
       console.log('Asset page text sample:', allText.substring(0, 1200));
       
       // NEW IMPROVED EXTRACTION LOGIC FOR RYSK PAGES
-      // Look for APR percentage patterns (like "35.35% APR")
-      const aprMatches = allText.match(/([0-9.]+)%\s*APR/gi);
-      if (aprMatches) {
-        console.log(`Found APR patterns: ${aprMatches.join(', ')}`);
+      // Look for strike-specific APR patterns by analyzing the page structure
+      console.log('Attempting to extract individual strike-APR pairs...');
+      
+      // Method 1: Look for DOM elements that contain both strike and APR info
+      const allElements = document.querySelectorAll('*');
+      const strikeAprPairs = [];
+      
+      for (let element of allElements) {
+        const text = element.textContent?.trim();
+        if (!text || text.length > 200) continue;
         
-        // Extract the highest APR as the main one
-        const aprs = aprMatches.map(match => {
-          const num = parseFloat(match.match(/([0-9.]+)/)[1]);
-          return num / 100; // Convert to decimal
-        });
+        // Look for elements that contain both a price and APR
+        const priceMatch = text.match(/\$([0-9,]+(?:\.[0-9]{2})?)/);  
+        const aprMatch = text.match(/([0-9.]+)%/);
         
-        const mainAPR = Math.max(...aprs);
-        console.log(`Using main APR: ${(mainAPR * 100).toFixed(2)}%`);
-        
-        // Look for strike price buttons/elements
-        const strikeMatches = allText.match(/\$([0-9,]+(?:\.[0-9]{2})?)/g);
-        if (strikeMatches) {
-          console.log(`Found potential strike prices: ${strikeMatches.join(', ')}`);
+        if (priceMatch && aprMatch) {
+          const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+          const apr = parseFloat(aprMatch[1]) / 100;
           
-          // Extract unique strike prices
-          const strikes = [...new Set(strikeMatches.map(match => {
-            const price = parseFloat(match.replace(/[$,]/g, ''));
-            return price;
-          }))].filter(price => price > 10); // Filter out very small prices
-          
-          console.log(`Parsed strike prices: ${strikes.map(s => '$' + s.toLocaleString()).join(', ')}`);
-          
-          // Create entries for each strike with the main APR
-          strikes.forEach(strike => {
-            results.push({
-              strikePrice: strike,
-              apr: mainAPR,
-              premium: null, // Will be calculated
-              source: 'improved_rysk_extraction'
+          if (price > 10 && apr > 0 && apr < 2) { // Reasonable bounds
+            strikeAprPairs.push({
+              strikePrice: price,
+              apr: apr,
+              premium: null,
+              source: 'dom_element_pair'
             });
-            console.log(`Added strike: $${strike.toLocaleString()} @ ${(mainAPR*100).toFixed(2)}% APR`);
-          });
+            console.log(`Found strike-APR pair in element: $${price.toLocaleString()} @ ${(apr*100).toFixed(2)}%`);
+          }
+        }
+      }
+      
+      // If we found paired data, use it
+      if (strikeAprPairs.length > 0) {
+        results.push(...strikeAprPairs);
+        console.log(`Successfully extracted ${strikeAprPairs.length} strike-APR pairs from DOM elements`);
+      } else {
+        // Fallback: Try to find patterns in text lines
+        console.log('No DOM pairs found, trying text pattern matching...');
+        
+        const lines = allText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        
+        for (let i = 0; i < lines.length - 1; i++) {
+          // Look for adjacent lines with strike and APR
+          const currentLine = lines[i];
+          const nextLine = lines[i + 1];
+          
+          const priceMatch = currentLine.match(/\$([0-9,]+(?:\.[0-9]{2})?)/);  
+          const aprMatch = nextLine.match(/^([0-9.]+)%\s*APR/i) || nextLine.match(/^([0-9.]+)%$/);
+          
+          if (priceMatch && aprMatch) {
+            const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+            const apr = parseFloat(aprMatch[1]) / 100;
+            
+            if (price > 10 && apr > 0 && apr < 2) {
+              results.push({
+                strikePrice: price,
+                apr: apr,
+                premium: null,
+                source: 'text_line_pair'
+              });
+              console.log(`Found strike-APR pair in text: $${price.toLocaleString()} @ ${(apr*100).toFixed(2)}%`);
+            }
+          }
         }
       }
       
