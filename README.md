@@ -14,6 +14,8 @@ The Rysk APR Monitor Dashboard is a professional financial analytics tool that:
 - **Identifies mispriced income** by comparing Rysk APRs vs theoretical rates
 - **Displays insights** through a modern, color-coded dashboard interface
 
+![Dashboard Preview](docs/screenshot.png)
+
 ## 🚀 Quick Start
 
 ### Prerequisites

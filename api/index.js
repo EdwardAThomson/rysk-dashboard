@@ -34,6 +34,12 @@ function blackScholesCall(S, K, T, r, sigma) {
 const app = express();
 const port = process.env.PORT || 3001;
 
+// CACHING SYSTEM - Store last scraped data for instant responses
+let cachedQuotes = null;
+let lastScrapeTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+let isRefreshing = false; // Prevent multiple background refreshes
+
 // const redisClient = redis.createClient({
 //   url: process.env.REDIS_DSN || 'redis://localhost:6379'
 // });
@@ -91,31 +97,31 @@ async function scrapeRyskV12Data() {
           name: 'UBTC',
           spotPrice: spotPrices.UBTC,
           volatility: volatilities.BTC,
-          strikeData: await navigateToAssetAndExtractData(page, 'UBTC')
+          strikeData: await navigateToAssetAndExtractData(page, 'UBTC', spotPrices.UBTC)
         },
         {
           name: 'UETH',
           spotPrice: spotPrices.UETH,
           volatility: volatilities.ETH,
-          strikeData: await navigateToAssetAndExtractData(page, 'UETH')
+          strikeData: await navigateToAssetAndExtractData(page, 'UETH', spotPrices.UETH)
         },
         {
           name: 'WHYPE',
           spotPrice: spotPrices.WHYPE,
           volatility: null, // No Deribit data for HYPE tokens
-          strikeData: await navigateToAssetAndExtractData(page, 'WHYPE')
+          strikeData: await navigateToAssetAndExtractData(page, 'WHYPE', spotPrices.WHYPE)
         },
         {
           name: 'kHYPE',
           spotPrice: spotPrices.kHYPE,
           volatility: null, // No Deribit data for HYPE tokens
-          strikeData: await navigateToAssetAndExtractData(page, 'kHYPE')
+          strikeData: await navigateToAssetAndExtractData(page, 'kHYPE', spotPrices.kHYPE)
         },
         {
           name: 'UPUMP',
           spotPrice: spotPrices.UPUMP,
           volatility: null,
-          strikeData: await navigateToAssetAndExtractData(page, 'UPUMP')
+          strikeData: await navigateToAssetAndExtractData(page, 'UPUMP', spotPrices.UPUMP)
         }
       ];
       
@@ -132,10 +138,12 @@ async function scrapeRyskV12Data() {
         }
         
         if (asset.strikeData.length === 0) {
-          console.warn(`No strike data found for ${asset.name}, creating placeholder strikes`);
+          console.warn(`No real strike data found for ${asset.name} - Rysk scraping failed. Creating placeholder strikes based on spot price.`);
+          console.warn(`WARNING: ${asset.name} strikes are NOT real Rysk data - they are calculated placeholders!`);
           
           // Create placeholder strikes based on spot price
           // This ensures assets are visible even when scraping fails
+          // NOTE: These are NOT real Rysk strike prices!
           const spotPrice = asset.spotPrice;
           
           // Handle small price tokens (< $1) with more precision
@@ -151,13 +159,14 @@ async function scrapeRyskV12Data() {
           };
           
           const placeholderStrikes = [
-            { strikePrice: roundToSignificantDigits(spotPrice * 0.9), apr: 0.15 }, // 10% OTM
-            { strikePrice: roundToSignificantDigits(spotPrice * 1.0), apr: 0.10 }, // ATM
-            { strikePrice: roundToSignificantDigits(spotPrice * 1.1), apr: 0.05 }  // 10% ITM
+            { strikePrice: roundToSignificantDigits(spotPrice * 0.85), apr: 0.18 }, // 15% OTM
+            { strikePrice: roundToSignificantDigits(spotPrice * 0.95), apr: 0.12 }, // 5% OTM
+            { strikePrice: roundToSignificantDigits(spotPrice * 1.05), apr: 0.08 }, // 5% ITM
+            { strikePrice: roundToSignificantDigits(spotPrice * 1.15), apr: 0.05 }  // 15% ITM
           ];
           
           asset.strikeData = placeholderStrikes;
-          console.log(`Created ${placeholderStrikes.length} placeholder strikes for ${asset.name}`);
+          console.log(`Created ${placeholderStrikes.length} PLACEHOLDER strikes for ${asset.name} (NOT real Rysk data - scraping failed)`);
         }
         
         // Add default volatility for assets without Deribit data
@@ -171,6 +180,23 @@ async function scrapeRyskV12Data() {
           };
           assetVolatility = defaultVolatilities[asset.name] || 0.6; // Default 60%
           console.log(`Using default volatility for ${asset.name}: ${(assetVolatility * 100).toFixed(1)}%`);
+        }
+        
+        // TARGETED FIX: Remove first strike for WHYPE and kHYPE only if it's too close to spot price
+        // This preserves legitimate strikes while removing garbage data
+        console.log(`MAIN LOOP DEBUG: Processing ${asset.name} with ${asset.strikeData.length} strikes`);
+        if ((asset.name === 'WHYPE' || asset.name === 'kHYPE') && asset.strikeData.length > 0 && asset.spotPrice) {
+          const firstStrike = asset.strikeData[0];
+          const percentDiff = Math.abs(firstStrike.strikePrice - asset.spotPrice) / asset.spotPrice;
+          
+          // Only remove if first strike is within 5% of spot price (likely garbage)
+          if (percentDiff < 0.05) {
+            const removedStrike = asset.strikeData.shift();
+            console.log(`MAIN LOOP: REMOVED first strike for ${asset.name}: $${removedStrike.strikePrice.toLocaleString()} @ ${(removedStrike.apr*100).toFixed(2)}% (too close to spot $${asset.spotPrice})`);
+            console.log(`MAIN LOOP: ${asset.name} now has ${asset.strikeData.length} strikes remaining`);
+          } else {
+            console.log(`MAIN LOOP: Keeping first strike for ${asset.name}: $${firstStrike.strikePrice.toLocaleString()} (${(percentDiff*100).toFixed(1)}% from spot)`);
+          }
         }
         
         // DEFAULT TO CALCULATED PREMIUMS to ensure uniqueness
@@ -239,7 +265,7 @@ async function scrapeRyskV12Data() {
 }
 
 // Helper function to navigate to asset page and extract REAL strike prices and APRs
-async function navigateToAssetAndExtractData(page, asset) {
+async function navigateToAssetAndExtractData(page, asset, spotPrice) {
   const strikeData = [];
   
   try {
@@ -346,10 +372,18 @@ async function navigateToAssetAndExtractData(page, asset) {
     while (attempts < maxAttempts) {
       console.log(`BROWSER [${asset}]: Extraction attempt ${attempts + 1}/${maxAttempts}`);
       
-      data = await page.evaluate((assetName) => {
+      data = await page.evaluate((assetName, spotPrice) => {
       const results = [];
       
       console.log(`Extracting REAL strike prices and APRs for ${assetName}...`);
+      console.log(`Spot price for validation: $${spotPrice}`);
+      
+      // Helper function to check if a price is too close to spot price (likely not a real strike)
+      const isTooCloseToSpot = (price) => {
+        if (!spotPrice || spotPrice === null) return false;
+        const percentDiff = Math.abs(price - spotPrice) / spotPrice;
+        return percentDiff < 0.05; // If within 5% of spot price, likely not a real strike
+      };
       
       const allText = document.body.innerText;
       console.log('Asset page text sample:', allText.substring(0, 1200));
@@ -374,7 +408,7 @@ async function navigateToAssetAndExtractData(page, asset) {
           const price = parseFloat(priceMatch[1].replace(/,/g, ''));
           const apr = parseFloat(aprMatch[1]) / 100;
           
-          if (price > 10 && apr > 0 && apr < 2) { // Reasonable bounds
+          if (price > 1000 && apr > 0 && apr < 2 && !isTooCloseToSpot(price)) { // Reasonable bounds + not spot price
             strikeAprPairs.push({
               strikePrice: price,
               apr: apr,
@@ -382,6 +416,8 @@ async function navigateToAssetAndExtractData(page, asset) {
               source: 'dom_element_pair'
             });
             console.log(`Found strike-APR pair in element: $${price.toLocaleString()} @ ${(apr*100).toFixed(2)}%`);
+          } else if (isTooCloseToSpot(price)) {
+            console.log(`Rejected price $${price.toLocaleString()} - too close to spot price $${spotPrice}`);
           }
         }
       }
@@ -408,7 +444,7 @@ async function navigateToAssetAndExtractData(page, asset) {
             const price = parseFloat(priceMatch[1].replace(/,/g, ''));
             const apr = parseFloat(aprMatch[1]) / 100;
             
-            if (price > 10 && apr > 0 && apr < 2) {
+            if (price > 1000 && apr > 0 && apr < 2 && !isTooCloseToSpot(price)) {
               results.push({
                 strikePrice: price,
                 apr: apr,
@@ -416,6 +452,8 @@ async function navigateToAssetAndExtractData(page, asset) {
                 source: 'text_line_pair'
               });
               console.log(`Found strike-APR pair in text: $${price.toLocaleString()} @ ${(apr*100).toFixed(2)}%`);
+            } else if (isTooCloseToSpot(price)) {
+              console.log(`Rejected price $${price.toLocaleString()} - too close to spot price $${spotPrice}`);
             }
           }
         }
@@ -567,13 +605,15 @@ async function navigateToAssetAndExtractData(page, asset) {
             );
             
             // If elements are close (within 200px), consider them related
-            if (distance < 200) {
+            if (distance < 200 && !isTooCloseToSpot(priceEl.price)) {
               console.log(`Found REAL ${assetName} data via proximity: $${priceEl.price.toLocaleString()} @ ${(aprEl.apr*100).toFixed(2)}% APR (no premium on website)`);
               results.push({
                 strikePrice: priceEl.price,
                 apr: aprEl.apr,
                 source: 'real_proximity_match'
               });
+            } else if (distance < 200 && isTooCloseToSpot(priceEl.price)) {
+              console.log(`Rejected proximity match $${priceEl.price.toLocaleString()} - too close to spot price $${spotPrice}`);
             }
           }
         }
@@ -585,7 +625,7 @@ async function navigateToAssetAndExtractData(page, asset) {
       );
       
       return unique.sort((a, b) => a.strikePrice - b.strikePrice);
-    }, asset);
+    }, asset, spotPrice);
     
     // Check if we got premiums for all strikes
     const strikesWithPremiums = data.filter(d => d.premium !== null && d.premium !== undefined).length;
@@ -605,6 +645,9 @@ async function navigateToAssetAndExtractData(page, asset) {
   }
   
   strikeData.push(...data);
+  
+  // Note: Strike filtering now happens in main loop with more targeted logic
+  console.log(`DEBUG: ${asset} extracted ${strikeData.length} strikes from scraping`);
   
   console.log(`Extracted ${strikeData.length} strikes for ${asset}:`, 
     strikeData.map(s => `$${s.strikePrice.toLocaleString()} @ ${(s.apr*100).toFixed(2)}%${s.premium ? ` Premium: ${s.premium}` : ''} (${s.source})`));
@@ -799,11 +842,57 @@ function calculatePremiumFromAPR(apr, spotPrice, timeToExpiry, assetName) {
   return (apr * spotPrice * timeToExpiry) * contractSize;
 }
 
+// Background refresh function - updates cache without blocking API responses
+async function refreshDataInBackground() {
+  if (isRefreshing) {
+    console.log('Background refresh already in progress, skipping...');
+    return;
+  }
+  
+  isRefreshing = true;
+  console.log('Starting background data refresh...');
+  
+  try {
+    const freshQuotes = await scrapeRyskV12Data();
+    if (freshQuotes.length > 0) {
+      cachedQuotes = freshQuotes;
+      lastScrapeTime = Date.now();
+      console.log(`Background refresh completed - cached ${freshQuotes.length} quotes`);
+    } else {
+      console.warn('Background refresh returned no data - keeping existing cache');
+    }
+  } catch (error) {
+    console.error('Background refresh failed:', error.message);
+    // Keep existing cache on error
+  } finally {
+    isRefreshing = false;
+  }
+}
+
 
 
 app.get('/api/quotes', async (req, res) => {
-  console.log('Fetching Rysk V12 data with REAL DATA ONLY...');
+  console.log('API request received - checking cache...');
   
+  // Return cached data immediately if available
+  if (cachedQuotes && cachedQuotes.length > 0) {
+    console.log(`Returning cached data (${cachedQuotes.length} quotes, age: ${Math.round((Date.now() - lastScrapeTime) / 1000)}s)`);
+    res.json(cachedQuotes);
+    
+    // Check if cache is stale and refresh in background if needed
+    const cacheAge = Date.now() - lastScrapeTime;
+    if (cacheAge > CACHE_DURATION) {
+      console.log('Cache is stale, triggering background refresh...');
+      // Don't await - let it run in background
+      refreshDataInBackground().catch(err => {
+        console.error('Background refresh error:', err.message);
+      });
+    }
+    return;
+  }
+  
+  // No cache available - do initial scrape (this will be slow)
+  console.log('No cached data available - performing initial scrape...');
   try {
     const quotes = await scrapeRyskV12Data();
     
@@ -816,6 +905,11 @@ app.get('/api/quotes', async (req, res) => {
       });
     }
     
+    // Cache the results
+    cachedQuotes = quotes;
+    lastScrapeTime = Date.now();
+    console.log(`Initial scrape completed - cached ${quotes.length} quotes`);
+    
     res.json(quotes);
   } catch (error) {
     console.error('Error fetching live market data:', error.message);
@@ -827,6 +921,19 @@ app.get('/api/quotes', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   }
+});
+
+// Debug endpoint to check cache status
+app.get('/api/cache-status', (req, res) => {
+  res.json({
+    hasCachedData: cachedQuotes !== null,
+    cachedQuotesCount: cachedQuotes ? cachedQuotes.length : 0,
+    lastScrapeTime: lastScrapeTime,
+    cacheAge: lastScrapeTime ? Date.now() - lastScrapeTime : null,
+    cacheAgeMinutes: lastScrapeTime ? Math.round((Date.now() - lastScrapeTime) / 60000) : null,
+    isRefreshing: isRefreshing,
+    cacheDuration: CACHE_DURATION
+  });
 });
 
 app.get('/api/theoretical_apr', (req, res) => {
