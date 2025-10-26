@@ -4,6 +4,11 @@
 
 ![Dashboard Preview](https://img.shields.io/badge/Status-Live-brightgreen) ![React](https://img.shields.io/badge/React-19.1.0-blue) ![Node.js](https://img.shields.io/badge/Node.js-Express-green) ![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-blue)
 
+## YouTube
+
+* [App overview](https://youtu.be/jA3Ut8ZXcSs)
+* [First attempt to vibe code the app](https://youtu.be/tBPAMtcomg4)
+
 ## 🎯 Overview
 
 The Rysk APR Monitor Dashboard is a professional financial analytics tool that:
@@ -203,19 +208,15 @@ DEBUG=true npm run start:server
 ```
 
 ## 📈 Future Enhancements
+Maybe. AI suggested these, but not sure if I'll commit to doing them. ;-D
+
 
 - [ ] Historical APR tracking and charts
 - [ ] WebSocket integration for real-time updates
 - [ ] Additional DeFi protocol integrations
 - [ ] Portfolio optimization suggestions
 
-## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and linting
-5. Submit a pull request
 
 ## 📄 License
 
