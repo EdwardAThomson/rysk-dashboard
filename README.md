@@ -5,9 +5,12 @@
 ![Dashboard Preview](https://img.shields.io/badge/Status-Live-brightgreen) ![React](https://img.shields.io/badge/React-19.1.0-blue) ![Node.js](https://img.shields.io/badge/Node.js-Express-green) ![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-blue)
 
 ## YouTube
+I created a shorted video explainer of the app for YouTube! Check it out:
 
 * [App overview](https://youtu.be/jA3Ut8ZXcSs)
 * [First attempt to vibe code the app](https://youtu.be/tBPAMtcomg4)
+
+Please like and subscribe if you found this useful!
 
 ## 🎯 Overview
 
