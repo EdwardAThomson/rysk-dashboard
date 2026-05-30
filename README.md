@@ -210,16 +210,10 @@ Set environment variables for detailed logging:
 DEBUG=true npm run start:server
 ```
 
-## 📈 Future Enhancements
-Maybe. AI suggested these, but not sure if I'll commit to doing them. ;-D
+## 📈 Roadmap
 
-
-- [ ] Historical APR tracking and charts
-- [ ] WebSocket integration for real-time updates
-- [ ] Additional DeFi protocol integrations
-- [ ] Portfolio optimization suggestions
-
-
+See [`ROADMAP.md`](ROADMAP.md) for shipped features and planned work (including
+a few AI-suggested enhancements I may or may not commit to. ;-D).
 
 ## 📄 License
 
